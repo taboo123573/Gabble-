@@ -5,11 +5,12 @@ import Peer from "peerjs";
 // ... imports ...
 
 // --- CONFIGURATION ---
-const SERVER_URL = "https://funny-name-123.koyeb.app"; // NO SLASH AT END!
+const SERVER_URL = "https://positive-joy-talksy-02653a35.koyeb.app"; 
 
 const socket = io(SERVER_URL, {
-  transports: ["polling"], // FORCE POLLING
-  withCredentials: true,
+  path: '/socket.io/',
+  transports: ["polling"], // Start with polling
+  withCredentials: true,   // This must result in 'true'
   autoConnect: true
 });
 // --- 2. COMPONENT: Voice User Bubble ---
