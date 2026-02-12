@@ -6,21 +6,18 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Hash, Volume2, Mic, MicOff, Headphones, VolumeX, Signal, Settings } from "lucide-react";
 import "./App.css";
 
-// --- 1. AUTO-DETECT URL ---
-// This ensures it works on your phone (via IP) and your laptop (via localhost)
-const SERVER_URL = "https://funny-name-123.koyeb.app";
+// --- 1. CONFIGURATION ---
+// REPLACE THIS WITH YOUR ACTUAL KOYEB URL
+const SERVER_URL = "https://funny-name-123.koyeb.app"; 
 
-// client/src/App.jsx
-
-// client/src/App.jsx
-
-const socket = io("https://funny-name-123.koyeb.app", {
-  transports: ["polling"], // FORCE polling to start - it's safer for CORS
+// Force 'polling' to start. This is the most stable way to connect to Koyeb/Cloud.
+const socket = io(SERVER_URL, {
+  transports: ["polling"],
   withCredentials: true,
-  forceNew: true
+  autoConnect: true
 });
 
-// --- 2. COMPONENT: Voice User Bubble (Green Outline) ---
+// --- 2. COMPONENT: Voice User Bubble ---
 const VoiceUser = ({ name, isSpeaking }) => (
   <motion.div 
     initial={{ opacity: 0, height: 0 }} 
@@ -48,7 +45,6 @@ function App() {
   
   const [activeChannel, setActiveChannel] = useState("General");
   const [activeVoice, setActiveVoice] = useState(null);
-  const [connectionStatus, setConnectionStatus] = useState("disconnected");
   
   const [message, setMessage] = useState("");
   const [messageList, setMessageList] = useState([]);
@@ -66,10 +62,10 @@ function App() {
 
   // --- INITIAL SETUP ---
   useEffect(() => {
+    // Initialize PeerJS for Voice
     const peer = new Peer();
     peer.on('open', (id) => setMyPeerId(id));
     
-    // Handle Incoming Calls
     peer.on('call', (call) => {
       navigator.mediaDevices.getUserMedia({ video: false, audio: true }).then((stream) => {
         call.answer(stream);
@@ -78,25 +74,31 @@ function App() {
     });
     peerInstance.current = peer;
 
-    // Handle User List Updates
+    // Handle Socket Listeners
+    socket.on('receive_message', (data) => {
+      setMessageList((list) => [...list, data]);
+    });
+
     socket.on('voice_users_update', ({ roomId, users }) => {
       setVoiceUsers((prev) => ({ ...prev, [roomId]: users }));
     });
 
-    return () => { socket.off('voice_users_update'); };
+    return () => { 
+        socket.off('receive_message');
+        socket.off('voice_users_update'); 
+    };
   }, []);
 
   // --- AUDIO HELPERS ---
   const handleRemoteStream = (stream, peerId) => {
-    // Play Audio
     const audio = document.createElement('audio');
     audio.srcObject = stream;
     audio.play();
     incomingAudioRefs.current[peerId] = audio;
     if (isDeafened) audio.muted = true;
 
-    // Speaking Detection (Green Outline)
-    const audioContext = new AudioContext();
+    // Speaking Detection Logic
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const source = audioContext.createMediaStreamSource(stream);
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 256;
@@ -109,7 +111,7 @@ function App() {
         let sum = 0;
         for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
         const average = sum / dataArray.length;
-        setSpeakingPeers(prev => ({ ...prev, [peerId]: average > 10 }));
+        setSpeakingPeers(prev => ({ ...prev, [peerId]: average > 15 }));
         requestAnimationFrame(checkVolume);
       }
     };
@@ -134,24 +136,21 @@ function App() {
   const toggleDeafen = () => {
     const newDeafenState = !isDeafened;
     setIsDeafened(newDeafenState);
-    // Mute all incoming audio
     Object.values(incomingAudioRefs.current).forEach(audio => audio.muted = newDeafenState);
-    // Auto-mute self if deafened
     if (newDeafenState && !isMuted) toggleMute();
   };
 
   // --- ACTIONS ---
   const joinVoiceChannel = (channelName) => {
     if (activeVoice === channelName) return; 
-    stopMicrophone(); // Stop old mic
-    setConnectionStatus("connecting");
+    stopMicrophone();
     
     navigator.mediaDevices.getUserMedia({ video: false, audio: true })
       .then((stream) => {
         myStreamRef.current = stream;
-        stream.getAudioTracks()[0].enabled = !isMuted; // Respect mute button
+        stream.getAudioTracks()[0].enabled = !isMuted;
         setActiveVoice(channelName);
-        handleRemoteStream(stream, myPeerId); // Analyze self volume
+        handleRemoteStream(stream, myPeerId); 
 
         socket.emit('join_voice', { roomId: channelName, peerId: myPeerId, username });
         
@@ -159,12 +158,9 @@ function App() {
           const call = peerInstance.current.call(newUserId, stream);
           call.on('stream', (remoteStream) => handleRemoteStream(remoteStream, newUserId));
         });
-        
-        setTimeout(() => setConnectionStatus("connected"), 500);
       })
       .catch(err => {
-        alert("Microphone Error! (If on phone, make sure you are using HTTPS)");
-        setConnectionStatus("disconnected");
+        alert("Microphone Access Denied! Ensure you are using HTTPS.");
       });
   };
 
@@ -173,7 +169,6 @@ function App() {
       socket.emit('leave_voice');
       stopMicrophone();
       setActiveVoice(null);
-      setConnectionStatus("disconnected");
       Object.values(incomingAudioRefs.current).forEach(audio => {
           audio.pause();
           audio.srcObject = null;
@@ -188,39 +183,62 @@ function App() {
       setToken(res.data.token);
       setUsername(res.data.username);
       socket.emit("join_room", "General");
-    } catch (e) { alert("Login Failed"); }
+    } catch (e) { 
+      alert(e.response?.data?.error || "Login Failed. Check Server Logs."); 
+    }
   };
   
   const register = async () => { 
-      try { await axios.post(`${SERVER_URL}/register`, { username, password }); alert("Registered!"); }
-      catch(e) { alert("Username taken"); }
+      try { 
+        await axios.post(`${SERVER_URL}/register`, { username, password }); 
+        alert("Registered successfully! Now you can login."); 
+      }
+      catch(e) { alert("Username taken or server error."); }
   };
 
   const sendMessage = async () => {
-    if (message) {
-      const msgData = { room: activeChannel, author: username, message, time: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) };
-      await socket.emit("send_message", msgData);
+    if (message.trim()) {
+      const msgData = { 
+        room: activeChannel, 
+        author: username, 
+        message, 
+        time: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) 
+      };
+      socket.emit("send_message", msgData);
       setMessageList(list => [...list, msgData]);
       setMessage("");
     }
   };
 
   // --- RENDER ---
-  if (!token) return <div className="login-container"><div className="login-box"><h2 style={{color:'white'}}>Login</h2><input placeholder="Name" onChange={e=>setUsername(e.target.value)}/><input type="password" placeholder="Pass" onChange={e=>setPassword(e.target.value)}/><button onClick={login}>Login</button><button style={{background:'transparent', marginTop:'10px'}} onClick={register}>Register</button></div></div>;
+  if (!token) return (
+    <div className="login-container">
+      <div className="login-box">
+        <h2 style={{color:'white', marginBottom:'20px'}}>Discord Clone</h2>
+        <input placeholder="Username" onChange={e=>setUsername(e.target.value)}/>
+        <input type="password" placeholder="Password" onChange={e=>setPassword(e.target.value)}/>
+        <button onClick={login}>Login</button>
+        <button className="secondary-btn" onClick={register}>Register</button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="app-container">
+      {/* Sidebar */}
       <div className="sidebar"><div className="server-icon">D</div></div>
       
+      {/* Channels List */}
       <div className="channels">
-        <h3 style={{color:'#949ba4', fontSize:'12px', fontWeight:'bold', paddingLeft:'10px'}}>TEXT</h3>
+        <h3 className="section-title">TEXT CHANNELS</h3>
         {["General", "Gaming"].map(c => (
-          <div key={c} className={`channel-item ${activeChannel === c ? "active" : ""}`} onClick={() => { setActiveChannel(c); socket.emit("join_room", c); setMessageList([]); }}>
+          <div key={c} className={`channel-item ${activeChannel === c ? "active" : ""}`} 
+               onClick={() => { setActiveChannel(c); socket.emit("join_room", c); setMessageList([]); }}>
             <Hash size={20} /> {c}
           </div>
         ))}
 
-        <h3 style={{color:'#949ba4', fontSize:'12px', fontWeight:'bold', paddingLeft:'10px', marginTop:'20px'}}>VOICE</h3>
+        <h3 className="section-title" style={{marginTop:'20px'}}>VOICE CHANNELS</h3>
         {["Lobby", "Gaming Voice"].map(c => (
           <div key={c}>
             <div className={`channel-item ${activeVoice === c ? "active" : ""}`} onClick={() => joinVoiceChannel(c)}>
@@ -234,56 +252,61 @@ function App() {
           </div>
         ))}
 
-        <div className="voice-controls" style={{marginTop: 'auto'}}>
-           <div style={{display: 'flex', alignItems: 'center', gap: '8px', flex: 1}}>
-             <div className="avatar" style={{width: '32px', height: '32px'}}></div>
-             <div>
-               <div style={{fontWeight: 'bold', fontSize: '13px', color: 'white'}}>{username}</div>
-               <div style={{fontSize: '11px', color: '#b5bac1'}}>Online</div>
+        {/* User Status Bar */}
+        <div className="voice-controls">
+           <div className="user-info">
+             <div className="avatar"></div>
+             <div className="name-tag">
+               <div className="username-text">{username}</div>
+               <div className="status-text">Online</div>
              </div>
            </div>
-           <div style={{display: 'flex', gap: '2px'}}>
-             {/* MUTE BUTTON */}
-             <button onClick={toggleMute} style={{background: 'transparent', padding: '6px', color: isMuted ? '#fa373c' : '#b5bac1'}}>
+           <div className="control-buttons">
+             <button onClick={toggleMute} style={{color: isMuted ? '#fa373c' : '#b5bac1'}}>
                {isMuted ? <MicOff size={20}/> : <Mic size={20}/>}
              </button>
-             {/* DEAFEN BUTTON (Fixed Icon) */}
-             <button onClick={toggleDeafen} style={{background: 'transparent', padding: '6px', color: isDeafened ? '#fa373c' : '#b5bac1'}}>
+             <button onClick={toggleDeafen} style={{color: isDeafened ? '#fa373c' : '#b5bac1'}}>
                {isDeafened ? <VolumeX size={20}/> : <Headphones size={20}/>}
              </button>
-             <button style={{background: 'transparent', padding: '6px', color: '#b5bac1'}}><Settings size={20}/></button>
+             <button style={{color: '#b5bac1'}}><Settings size={20}/></button>
            </div>
         </div>
 
         {activeVoice && (
-          <div style={{padding: '10px', background: '#232428', borderTop: '1px solid #1e1f22'}}>
-             <div style={{color: '#3ba55c', fontWeight:'bold', fontSize:'12px', display:'flex', alignItems:'center', gap:'5px', marginBottom:'5px'}}>
-               <Signal size={14}/> Connected: {activeVoice}
+          <div className="voice-status">
+             <div className="connection-info">
+               <Signal size={14}/> Voice Connected: {activeVoice}
              </div>
-             <button onClick={leaveVoice} style={{padding:'6px', background: 'transparent', border: '1px solid #da373c', color: '#da373c', fontSize:'12px', width: '100%', borderRadius: '4px'}}>
-               Disconnect
-             </button>
+             <button className="disconnect-btn" onClick={leaveVoice}>Disconnect</button>
           </div>
         )}
       </div>
 
+      {/* Main Chat Area */}
       <div className="chat-area">
-        <div style={{height: '48px', borderBottom: '1px solid #26272d', display: 'flex', alignItems: 'center', padding: '0 16px', fontWeight: 'bold', color: 'white'}}>
-          <Hash size={24} style={{marginRight: '8px', color: '#80848e'}}/> {activeChannel}
+        <div className="chat-header">
+          <Hash size={24} style={{color: '#80848e'}}/> {activeChannel}
         </div>
         <div className="messages-list">
           {messageList.map((msg, i) => (
             <motion.div key={i} initial={{opacity:0, x:-10}} animate={{opacity:1, x:0}} className="message">
               <div className="avatar"></div>
-              <div>
-                <div style={{fontWeight:'bold', color: msg.author===username ? '#4ade80':'white'}}>{msg.author} <span style={{fontSize:'12px', color:'#949ba4', fontWeight:'normal'}}>{msg.time}</span></div>
-                <div style={{color:'#dcddde'}}>{msg.message}</div>
+              <div className="message-content">
+                <div className="message-meta">
+                  <span className="author" style={{color: msg.author===username ? '#4ade80':'white'}}>{msg.author}</span>
+                  <span className="time">{msg.time}</span>
+                </div>
+                <div className="text">{msg.message}</div>
               </div>
             </motion.div>
           ))}
         </div>
         <div className="input-area">
-          <input className="input-box" placeholder={`Message #${activeChannel}`} value={message} onChange={e=>setMessage(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} />
+          <input className="input-box" 
+                 placeholder={`Message #${activeChannel}`} 
+                 value={message} 
+                 onChange={e=>setMessage(e.target.value)} 
+                 onKeyDown={e => e.key === 'Enter' && sendMessage()} />
         </div>
       </div>
     </div>
