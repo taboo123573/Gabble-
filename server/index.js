@@ -8,7 +8,13 @@ const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose'); // New library
 
 const app = express();
-app.use(cors());
+// server/index.js
+
+app.use(cors({
+  origin: "*", // This allows all origins (e.g., your phone, local pc, or a deployed site)
+  methods: ["GET", "POST"],
+  credentials: true
+}));
 app.use(express.json());
 
 const server = http.createServer(app);
