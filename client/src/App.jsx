@@ -10,8 +10,13 @@ import "./App.css";
 // This ensures it works on your phone (via IP) and your laptop (via localhost)
 const SERVER_URL = "https://funny-name-123.koyeb.app";
 
+// client/src/App.jsx
+
 const socket = io(SERVER_URL, {
-  transports: ["websocket", "polling"]
+  transports: ["polling", "websocket"], // Force polling first
+  withCredentials: true,
+  reconnectionAttempts: 5,
+  timeout: 10000,
 });
 
 // --- 2. COMPONENT: Voice User Bubble (Green Outline) ---
