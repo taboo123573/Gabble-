@@ -1,19 +1,14 @@
 import { useState, useEffect, useRef } from "react";
+import io from "socket.io-client";
 import axios from "axios";
 import Peer from "peerjs";
-import { motion, AnimatePresence } from "framer-motion";
-import { Hash, Volume2, Mic, MicOff, Headphones, VolumeX, Signal, Settings } from "lucide-react";
-import "./App.css";
+// ... imports ...
 
-// --- 1. CONFIGURATION ---
-// REPLACE THIS WITH YOUR ACTUAL KOYEB URL
-import io from 'socket.io-client';
+// --- CONFIGURATION ---
+const SERVER_URL = "https://funny-name-123.koyeb.app"; // NO SLASH AT END!
 
-// 1. Define the URL
-const SERVER_URL = "https://funny-name-123.koyeb.app"; 
-
-// 2. Simple Connection (Let Socket.io handle the rest)
 const socket = io(SERVER_URL, {
+  transports: ["polling"], // FORCE POLLING
   withCredentials: true,
   autoConnect: true
 });
