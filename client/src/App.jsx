@@ -8,9 +8,7 @@ import "./App.css";
 
 // --- 1. AUTO-DETECT URL ---
 // This ensures it works on your phone (via IP) and your laptop (via localhost)
-const SERVER_URL = window.location.hostname === "localhost" 
-  ? "http://localhost:3001" 
-  : `http://${window.location.hostname}:3001`;
+const SERVER_URL = "https://funny-name-123.koyeb.app";
 
 const socket = io.connect(SERVER_URL);
 

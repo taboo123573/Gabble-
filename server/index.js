@@ -45,7 +45,7 @@ function decrypt(text) {
 }
 
 // --- PERSISTENT DATABASE ---
-const DATA_FILE = './users.encrypted'; // Changed extension to show it's encrypted
+const DATA_FILE = './users_v2.encrypted'; // Changed extension to show it's encrypted
 let users = [];
 
 // 1. Load users (Decrypting on read)
