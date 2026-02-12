@@ -3,47 +3,39 @@ const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
 const cors = require('cors');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 
 const app = express();
 
-// --- 1. FIXED CORS SETUP ---
+// 1. RADICAL CORS (Allows everything for debugging)
 app.use(cors({
-  origin: "*", 
-  methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true
+  origin: true, // Dynamically allow the origin of the request
+  credentials: true,
+  methods: ["GET", "POST"]
 }));
 
 app.use(express.json());
 
 const server = http.createServer(app);
 
-// --- 2. FIXED SOCKET.IO SETUP ---
+// 2. STRENGTHENED SOCKET.IO
 const io = new Server(server, {
   cors: {
-    origin: "*",
+    origin: true,
     methods: ["GET", "POST"],
     credentials: true
   },
-  transports: ['websocket', 'polling']
+  allowEIO3: true, // Compatibility mode
+  transports: ['polling', 'websocket'] // Force polling first to establish CORS
 });
 
-// --- 3. MONGODB CONNECTION ---
+// 3. MONGODB (Non-blocking)
 const uri = process.env.MONGODB_URI;
-
-if (!uri) {
-    console.error("FATAL: MONGODB_URI is not defined in Environment Variables!");
-}
-
 mongoose.connect(uri)
-  .then(() => console.log("Connected to MongoDB Atlas! ✅"))
-  .catch(err => {
-    console.error("MongoDB Connection Error: ", err.message);
-    console.log("Check your MONGODB_URI in Koyeb settings.");
-  });
+  .then(() => console.log("MongoDB Connected ✅"))
+  .catch(err => console.log("MongoDB Error ❌: ", err.message));
+
+// ... keep your routes and socket logic below ...
 
 // --- 4. DATA SCHEMA ---
 const UserSchema = new mongoose.Schema({

@@ -12,11 +12,12 @@ const SERVER_URL = "https://funny-name-123.koyeb.app";
 
 // client/src/App.jsx
 
-const socket = io(SERVER_URL, {
-  transports: ["polling", "websocket"], // Force polling first
+// client/src/App.jsx
+
+const socket = io("https://funny-name-123.koyeb.app", {
+  transports: ["polling"], // FORCE polling to start - it's safer for CORS
   withCredentials: true,
-  reconnectionAttempts: 5,
-  timeout: 10000,
+  forceNew: true
 });
 
 // --- 2. COMPONENT: Voice User Bubble (Green Outline) ---
