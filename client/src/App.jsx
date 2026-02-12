@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from "react";
-import io from "socket.io-client";
 import axios from "axios";
 import Peer from "peerjs";
 import { motion, AnimatePresence } from "framer-motion";
@@ -8,15 +7,16 @@ import "./App.css";
 
 // --- 1. CONFIGURATION ---
 // REPLACE THIS WITH YOUR ACTUAL KOYEB URL
+import io from 'socket.io-client';
+
+// 1. Define the URL
 const SERVER_URL = "https://funny-name-123.koyeb.app"; 
 
-// Force 'polling' to start. This is the most stable way to connect to Koyeb/Cloud.
+// 2. Simple Connection (Let Socket.io handle the rest)
 const socket = io(SERVER_URL, {
-  transports: ["polling"],
   withCredentials: true,
   autoConnect: true
 });
-
 // --- 2. COMPONENT: Voice User Bubble ---
 const VoiceUser = ({ name, isSpeaking }) => (
   <motion.div 
