@@ -1,0 +1,7 @@
+# .gitignore
+node_modules/
+.env
+users.json
+users.encrypted
+.DS_Store
+dist/
