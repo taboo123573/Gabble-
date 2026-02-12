@@ -9,52 +9,43 @@ const jwt = require('jsonwebtoken');
 const app = express();
 const PORT = process.env.PORT || 8000;
 
-// --- 1. DEFINE ALLOWED ORIGINS ---
-// This includes your Localhost AND your Production URL
+// --- 1. CONFIGURATION ---
 const allowedOrigins = [
-  "http://localhost:5173",                      // Your Local React App
-  "https://positive-joy-talksy-02653a35.koyeb.app" // Your Public App
+  "http://localhost:5173",
+  "https://positive-joy-talksy-02653a35.koyeb.app" // YOUR REAL URL
 ];
 
-// --- 2. CONFIGURE CORS FOR EXPRESS ---
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
-    }
-    return callback(null, true);
+    if (!origin || allowedOrigins.includes(origin)) callback(null, true);
+    else callback(new Error('Not allowed by CORS'));
   },
-  credentials: true, // This matches the client setting
-  methods: ["GET", "POST", "OPTIONS"]
+  credentials: true,
+  methods: ["GET", "POST"]
 }));
-
 app.use(express.json());
 
-// --- 3. START SERVER ---
+// --- 2. START SERVER ---
 const expressServer = app.listen(PORT, () => {
   console.log(`🚀 SERVER RUNNING ON PORT ${PORT}`);
 });
 
-// --- 4. CONFIGURE SOCKET.IO CORS ---
+// --- 3. SOCKET SETUP ---
 const io = new Server(expressServer, {
   cors: {
-    origin: allowedOrigins, // Use the same specific list
+    origin: allowedOrigins,
     methods: ["GET", "POST"],
-    credentials: true // This MUST match the client
+    credentials: true
   },
   transports: ['polling', 'websocket'],
   path: '/socket.io/'
 });
 
-// --- 5. DATABASE ---
+// --- 4. DATABASE ---
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log("✅ MongoDB Connected"))
   .catch(err => console.log("❌ DB Error:", err.message));
 
-// --- 6. ROUTES ---
 // User Model
 const UserSchema = new mongoose.Schema({
   username: { type: String, unique: true, required: true },
@@ -62,7 +53,8 @@ const UserSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', UserSchema);
 
-app.get("/", (req, res) => res.send("Server is Online 🟢"));
+// --- 5. ROUTES ---
+app.get("/", (req, res) => res.send("Server Online"));
 
 app.post('/register', async (req, res) => {
   try {
@@ -71,29 +63,65 @@ app.post('/register', async (req, res) => {
     const newUser = new User({ username, password: hashedPassword });
     await newUser.save();
     res.json({ message: "User registered" });
-  } catch (e) {
-    res.status(400).json({ error: "Username taken" });
-  }
+  } catch (e) { res.status(400).json({ error: "Username taken" }); }
 });
 
 app.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     const user = await User.findOne({ username });
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(400).json({ error: "Invalid credentials" });
-    }
+    if (!user || !(await bcrypt.compare(password, user.password))) return res.status(400).json({ error: "Invalid credentials" });
     const token = jwt.sign({ username }, process.env.JWT_SECRET || 'secret');
     res.json({ token, username });
-  } catch (e) {
-    res.status(500).json({ error: "Login failed" });
-  }
+  } catch (e) { res.status(500).json({ error: "Login failed" }); }
 });
 
-// --- 7. SOCKET LOGIC ---
+// --- 6. VOICE ROOM LOGIC (THE FIX) ---
+const voiceRooms = {}; // Stores { "Lobby": [{username, peerId, socketId}] }
+
+const removeUserFromVoice = (socketId) => {
+  for (const roomId in voiceRooms) {
+    const initialLength = voiceRooms[roomId].length;
+    // Filter out the user who left
+    voiceRooms[roomId] = voiceRooms[roomId].filter(u => u.socketId !== socketId);
+    
+    // If someone was actually removed, tell everyone in that room
+    if (voiceRooms[roomId].length < initialLength) {
+      io.emit('voice_users_update', { roomId, users: voiceRooms[roomId] });
+    }
+  }
+};
+
 io.on('connection', (socket) => {
   console.log(`⚡ User Connected: ${socket.id}`);
-  socket.on('disconnect', () => console.log(`❌ Disconnected: ${socket.id}`));
+
+  // Text Chat
   socket.on('join_room', (room) => socket.join(room));
   socket.on('send_message', (data) => socket.to(data.room).emit('receive_message', data));
+
+  // Voice Chat (Logic Restored!)
+  socket.on('join_voice', ({ roomId, peerId, username }) => {
+    // 1. Make sure they leave other voice channels first
+    removeUserFromVoice(socket.id);
+
+    // 2. Add to new room
+    if (!voiceRooms[roomId]) voiceRooms[roomId] = [];
+    voiceRooms[roomId].push({ username, peerId, socketId: socket.id });
+
+    // 3. Tell everyone "Here is the new list of users for this room"
+    io.emit('voice_users_update', { roomId, users: voiceRooms[roomId] });
+
+    // 4. Signal other peers to connect audio
+    socket.to(roomId).emit('user_connected', peerId);
+    socket.join(roomId);
+  });
+
+  socket.on('leave_voice', () => {
+    removeUserFromVoice(socket.id);
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`❌ Disconnected: ${socket.id}`);
+    removeUserFromVoice(socket.id);
+  });
 });
