@@ -97,7 +97,20 @@ io.on('connection', (socket) => {
 
   // Text Chat
   socket.on('join_room', (room) => socket.join(room));
-  socket.on('send_message', (data) => socket.to(data.room).emit('receive_message', data));
+  // --- INSIDE server/index.js ---
+
+  socket.on('send_message', (data) => {
+    // 1. THE FIX: Parse data if it arrives as a string
+    if (typeof data === 'string') {
+      try { data = JSON.parse(data); } catch(e){}
+    }
+    
+    // 2. Debug Log (Optional: Helps you see if it arrives)
+    console.log(`📩 Message from ${data.author} to ${data.room}: ${data.message}`);
+
+    // 3. Broadcast
+    socket.to(data.room).emit('receive_message', data);
+  });
 
   // Voice Chat (Logic Restored!)
   socket.on('join_voice', ({ roomId, peerId, username }) => {
